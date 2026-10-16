@@ -1,0 +1,17 @@
+.env
+*.pem
+*.key
+*.db
+*.db-*
+*.sqlite*
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+*.egg-info/
+.idea/
+.vscode/
+*.zip

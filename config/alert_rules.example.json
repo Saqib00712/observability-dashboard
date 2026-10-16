@@ -1,0 +1,20 @@
+{
+  "rules": [
+    {"id": "high-error-rate", "name": "Request error rate above 5%", "metric": "request_error_rate",
+     "comparator": ">", "threshold": 0.05, "window_minutes": 5, "for_seconds": 60, "min_samples": 20,
+     "severity": "critical", "description": "EXAMPLE thresholds - tune to your service."},
+    {"id": "slow-p95", "name": "p95 latency above 2 s", "metric": "request_latency_p95_ms",
+     "comparator": ">", "threshold": 2000, "window_minutes": 5, "for_seconds": 120, "min_samples": 20,
+     "severity": "warning"},
+    {"id": "llm-failures", "name": "AI call error rate above 10%", "metric": "ai_error_rate",
+     "comparator": ">", "threshold": 0.10, "window_minutes": 10, "for_seconds": 60, "min_samples": 10,
+     "severity": "warning"},
+    {"id": "unpriced-calls", "name": "Calls with unknown cost", "metric": "ai_unpriced_calls",
+     "comparator": ">", "threshold": 0, "window_minutes": 60, "severity": "info",
+     "description": "A model is missing from the pricing file."},
+    {"id": "traffic-stopped", "name": "No requests for 10 minutes", "metric": "request_count",
+     "comparator": "<", "threshold": 1, "window_minutes": 10, "for_seconds": 0, "severity": "warning"},
+    {"id": "telemetry-stale", "name": "No new telemetry for 5 minutes", "metric": "telemetry_staleness_seconds",
+     "comparator": ">", "threshold": 300, "severity": "critical"}
+  ]
+}

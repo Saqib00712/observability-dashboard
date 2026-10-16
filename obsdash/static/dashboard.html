@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>obsdash — AI observability</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #6f6d67;
+    --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+    --s1: #2a78d6; --bad: #d03b3b; --bad-text: #a42828; --warn-bg: #fff4d6; --warn-ink: #6b4a00;
+    --ok-text: #006300; --hover: rgba(11,11,11,0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #a09e97;
+      --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+      --s1: #3987e5; --bad: #d03b3b; --bad-text: #f08a8a; --warn-bg: #3a2e0c; --warn-ink: #f3d27a;
+      --ok-text: #0ca30c; --hover: rgba(255,255,255,0.06);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #a09e97;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --s1: #3987e5; --bad: #d03b3b; --bad-text: #f08a8a; --warn-bg: #3a2e0c; --warn-ink: #f3d27a;
+    --ok-text: #0ca30c; --hover: rgba(255,255,255,0.06);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+  h1 .sub { font-weight: 400; color: var(--muted); }
+  h1 { font-size: 18px; margin: 0; font-weight: 650; }
+  h2 { font-size: 13px; margin: 0 0 8px; font-weight: 600; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  select, button { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--axis);
+                   border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  button:hover, select:hover { background: var(--hover); }
+  button:focus-visible, select:focus-visible, tr[tabindex]:focus-visible { outline: 2px solid var(--s1); outline-offset: 1px; }
+  .status { color: var(--muted); font-size: 12px; margin: 8px 0; min-height: 18px; }
+  .banner { border-radius: 6px; padding: 8px 12px; margin: 8px 0; display: none; }
+  .banner.err { display: block; background: rgba(208,59,59,.12); border: 1px solid var(--bad); color: var(--bad-text); }
+  .banner.warn { display: block; background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--axis); }
+  nav[role=tablist] { display: flex; gap: 4px; border-bottom: 1px solid var(--axis); margin: 12px 0 16px; }
+  nav button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 14px; }
+  nav button[aria-selected=true] { border-bottom-color: var(--s1); font-weight: 600; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+  .tile .label { color: var(--ink-2); font-size: 12px; }
+  .tile .value { font-size: 26px; font-weight: 600; margin-top: 2px; word-break: break-word; }
+  .tile .sub { color: var(--muted); font-size: 12px; min-height: 16px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 800px) { .grid2 { grid-template-columns: 1fr; } }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+  th { color: var(--ink-2); font-weight: 600; font-size: 12px; }
+  td.num, th.num { text-align: right; }
+  .tablewrap { overflow-x: auto; }
+  tr.click { cursor: pointer; } tr.click:hover { background: var(--hover); }
+  .bad { color: var(--bad-text); } .ok { color: var(--ok-text); }
+  .empty { color: var(--muted); padding: 18px 4px; text-align: center; }
+  .stale { opacity: .55; }
+  svg text { fill: var(--muted); font-size: 11px; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--ink-2); margin-bottom: 6px; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .chartbox { position: relative; }
+  .tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--axis);
+         border-radius: 6px; padding: 6px 8px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.15);
+         display: none; z-index: 5; white-space: nowrap; }
+  details summary { cursor: pointer; color: var(--ink-2); font-size: 12px; margin-top: 6px; }
+  .wf-row { display: grid; grid-template-columns: minmax(180px, 38%) 1fr 80px; gap: 8px; align-items: center;
+            padding: 3px 0; border-bottom: 1px solid var(--grid); }
+  .wf-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wf-track { position: relative; height: 12px; background: var(--grid); border-radius: 3px; }
+  .wf-bar { position: absolute; top: 0; height: 12px; border-radius: 3px; background: var(--s1); min-width: 2px; }
+  .wf-bar.error { background: var(--bad); }
+  .attrs { font-size: 12px; color: var(--ink-2); margin: 2px 0 6px 12px; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+  [class^="state-"] { white-space: nowrap; }
+  .state-firing { color: var(--bad-text); font-weight: 600; } .state-pending { color: var(--warn-ink); font-weight: 600; }
+  .state-ok { color: var(--ok-text); } .state-nodata, .state-na { color: var(--muted); }
+  nav button .badge { background: var(--bad); color: #fff; border-radius: 9px; padding: 0 6px; font-size: 11px; margin-left: 4px; }
+  #auth input { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--axis); border-radius: 6px; padding: 5px 10px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>obsdash <span class="sub">· AI observability</span></h1>
+    <div class="controls">
+      <label>Window
+        <select id="window">
+          <option value="15">15 min</option><option value="60" selected>1 hour</option>
+          <option value="360">6 hours</option><option value="1440">24 hours</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="auto" checked> Auto-refresh (5s)</label>
+      <button id="refresh" type="button">Refresh</button>
+      <button id="theme" type="button" aria-label="Toggle dark mode">Theme</button>
+    </div>
+  </header>
+  <div class="status" id="status" aria-live="polite">Loading…</div>
+  <div class="banner" id="banner" role="alert"></div>
+  <div class="card hidden" id="auth">
+    <h2>Authentication required</h2>
+    <p>This server requires an API token. It is kept only for this browser tab (sessionStorage) and sent as an Authorization header.</p>
+    <div class="controls">
+      <input id="token" type="password" autocomplete="off" aria-label="API token" placeholder="API token" size="40">
+      <button id="token-save" type="button">Save &amp; reload data</button>
+    </div>
+  </div>
+
+  <nav role="tablist" aria-label="Dashboard pages">
+    <button role="tab" data-tab="overview" aria-selected="true">Overview</button>
+    <button role="tab" data-tab="ai" aria-selected="false">AI &amp; cost</button>
+    <button role="tab" data-tab="traces" aria-selected="false">Traces</button>
+    <button role="tab" data-tab="errors" aria-selected="false">Errors</button>
+    <button role="tab" data-tab="alerts" id="alerts-tab" aria-selected="false">Alerts</button>
+  </nav>
+
+  <main id="content">
+    <section id="tab-overview"></section>
+    <section id="tab-ai" class="hidden"></section>
+    <section id="tab-traces" class="hidden"></section>
+    <section id="tab-errors" class="hidden"></section>
+    <section id="tab-alerts" class="hidden"></section>
+  </main>
+</div>
+<div class="tip" id="tip" role="tooltip"></div>
+
+<script>
+"use strict";
+// ---------- tiny DOM helpers. All data goes in via textContent: span names,
+// attributes and error types can contain user-controlled text, so nothing
+// from the API is ever parsed as HTML. ----------
+const SVGNS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") n.className = v; else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    // Inline style attributes are blocked by our strict CSP; the CSSOM is allowed.
+    else if (k === "style") { for (const d of String(v).split(";")) { const i = d.indexOf(":"); if (i > 0) n.style.setProperty(d.slice(0, i).trim(), d.slice(i + 1).trim()); } }
+    else if (v !== null && v !== undefined) n.setAttribute(k, v);
+  }
+  for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false)
+    n.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  return n;
+}
+function svg(tag, attrs, ...kids) {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, v);
+  for (const kid of kids.flat()) if (kid) n.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  return n;
+}
+const $ = (id) => document.getElementById(id);
+const fmtInt = (n) => (n === null || n === undefined) ? "—" : Number(n).toLocaleString();
+const fmtMs = (n) => n === null || n === undefined ? "—" : (n >= 1000 ? (n / 1000).toFixed(2) + " s" : n.toFixed(n < 10 ? 1 : 0) + " ms");
+const fmtPct = (r) => r === null || r === undefined ? "—" : (r * 100).toFixed(r < 0.1 ? 1 : 0) + "%";
+const fmtTime = (ns) => new Date(ns / 1e6).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const fmtHM = (ns) => new Date(ns / 1e6).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+function fmtMoney(byCur) {
+  const parts = Object.entries(byCur || {}).map(([cur, v]) => {
+    try { return new Intl.NumberFormat(undefined, { style: "currency", currency: cur, minimumFractionDigits: 2, maximumFractionDigits: 6 }).format(v); }
+    catch (_) { return cur + " " + v; }
+  });
+  return parts.length ? parts.join(" + ") : "—";
+}
+
+// ---------- state ----------
+const state = { tab: "overview", windowMin: 60, overview: null, costs: null, traces: null, errors: null, alerts: null,
+                errorsOnly: false, openTrace: null, traceDetail: null, failed: null, authRequired: false, seq: 0 };
+
+function getToken() { try { return sessionStorage.getItem("obsdash-token") || ""; } catch (_) { return ""; } }
+async function api(path) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 8000);
+  try {
+    const headers = { Accept: "application/json" };
+    const token = getToken();
+    if (token) headers.Authorization = "Bearer " + token;
+    const r = await fetch(path, { signal: ctl.signal, headers });
+    if (r.status === 401) { const e = new Error("authentication required"); e.auth = true; throw e; }
+    if (!r.ok) throw new Error(path + " → HTTP " + r.status);
+    return await r.json();
+  } catch (e) {
+    if (e.auth) throw e;
+    throw new Error(e.name === "AbortError" ? path + " timed out" : e.message);
+  } finally { clearTimeout(timer); }
+}
+
+async function refresh() {
+  const seq = ++state.seq, w = state.windowMin;
+  try {
+    // Alert status is fetched every time (for the tab badge) but is allowed to fail on its own.
+    const jobs = { overview: api("/api/overview?window_minutes=" + w), alerts: api("/api/alerts").catch(() => null) };
+    if (state.tab === "ai") jobs.costs = api("/api/costs/summary?window_minutes=" + w);
+    if (state.tab === "traces") jobs.traces = api("/api/traces?limit=30" + (state.errorsOnly ? "&status=error" : ""));
+    if (state.tab === "errors") jobs.errors = api("/api/errors?window_minutes=" + w + "&limit=50");
+    if (state.tab === "traces" && state.openTrace) jobs.traceDetail = api("/api/traces/" + state.openTrace).catch((e) => ({ _error: e.message }));
+    const entries = await Promise.all(Object.entries(jobs).map(async ([k, p]) => [k, await p]));
+    if (seq !== state.seq) return;            // a newer refresh superseded this one
+    for (const [k, v] of entries) state[k] = v;
+    state.failed = null; state.authRequired = false;
+  } catch (e) {
+    if (seq !== state.seq) return;
+    state.failed = e.message;                 // keep the last good data, dimmed, plus a banner
+    state.authRequired = !!e.auth;
+  }
+  render();
+}
+
+// ---------- charts ----------
+const tip = $("tip");
+function showTip(evt, box, lines) {
+  tip.replaceChildren(...lines.map((l, i) => el("div", i === 0 ? { style: "font-weight:600" } : {}, l)));
+  tip.style.display = "block";
+  const b = box.getBoundingClientRect();
+  let x = evt.clientX - b.left + 12, y = evt.clientY - b.top + 12;
+  const tw = tip.offsetWidth;
+  if (x + tw > b.width) x = Math.max(0, evt.clientX - b.left - tw - 12);
+  box.appendChild(tip); tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+function hideTip() { tip.style.display = "none"; }
+
+function niceMax(v) {
+  if (v <= 0) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(v))), f = v / p;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
+}
+
+const W = 640, H = 210, PL = 44, PR = 8, PT = 8, PB = 24;
+function chartFrame(series, maxY, fmtTick) {
+  const s = svg("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", role: "img" });
+  for (const frac of [0, 0.5, 1]) {
+    const y = PT + (H - PT - PB) * (1 - frac);
+    s.append(svg("line", { x1: PL, x2: W - PR, y1: y, y2: y, stroke: frac === 0 ? "var(--axis)" : "var(--grid)", "stroke-width": 1 }));
+    s.append(svg("text", { x: PL - 6, y: y + 4, "text-anchor": "end" }, fmtTick(maxY * frac)));
+  }
+  const idx = [0, Math.floor((series.length - 1) / 2), series.length - 1];
+  [...new Set(idx)].forEach((i, k, arr) => s.append(svg("text",
+    { x: PL + (W - PL - PR) * (series.length === 1 ? 0.5 : i / (series.length - 1)), y: H - 6,
+      "text-anchor": k === 0 && arr.length > 1 ? "start" : k === arr.length - 1 && arr.length > 1 ? "end" : "middle" },
+    fmtHM(series[i].t_ns))));
+  return s;
+}
+
+function requestsChart(series, bucketS) {
+  const n = series.length, plotW = W - PL - PR, plotH = H - PT - PB, slot = plotW / n;
+  const maxY = niceMax(Math.max(1, ...series.map((b) => b.requests)));
+  const s = chartFrame(series, maxY, (v) => String(Math.round(v)));
+  const box = el("div", { class: "chartbox" }, s);
+  series.forEach((b, i) => {
+    const x = PL + i * slot + 1, bw = Math.max(1, slot - 2);
+    const ok = b.requests - b.errors, hOk = plotH * ok / maxY, hErr = plotH * b.errors / maxY;
+    if (hOk > 0) s.append(svg("rect", { x, width: bw, y: PT + plotH - hOk - hErr - (hErr ? 2 : 0), height: hOk, rx: 2, fill: "var(--s1)" }));
+    if (hErr > 0) s.append(svg("rect", { x, width: bw, y: PT + plotH - hErr, height: hErr, rx: 2, fill: "var(--bad)" }));
+    const hit = svg("rect", { x: PL + i * slot, width: slot, y: PT, height: plotH, fill: "transparent" });
+    const lines = [fmtHM(b.t_ns) + " – " + fmtHM(b.t_ns + bucketS * 1e9), "Requests: " + b.requests, "Errors: " + b.errors,
+                   "p95: " + fmtMs(b.p95_ms)];
+    hit.addEventListener("mousemove", (e) => showTip(e, box, lines));
+    hit.addEventListener("mouseleave", hideTip);
+    s.append(hit);
+  });
+  return box;
+}
+
+function latencyChart(series, bucketS) {
+  const n = series.length, plotW = W - PL - PR, plotH = H - PT - PB;
+  const vals = series.map((b) => b.p95_ms).filter((v) => v !== null);
+  const maxY = niceMax(Math.max(1, ...vals));
+  const s = chartFrame(series, maxY, (v) => fmtMs(v));
+  const box = el("div", { class: "chartbox" }, s);
+  const X = (i) => PL + plotW * (n === 1 ? 0.5 : i / (n - 1)), Y = (v) => PT + plotH * (1 - v / maxY);
+  let d = "", pen = false;
+  series.forEach((b, i) => { if (b.p95_ms === null) { pen = false; return; } d += (pen ? "L" : "M") + X(i) + " " + Y(b.p95_ms); pen = true; });
+  if (d) s.append(svg("path", { d, fill: "none", stroke: "var(--s1)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+  series.forEach((b, i) => { if (b.p95_ms !== null) s.append(svg("circle", { cx: X(i), cy: Y(b.p95_ms), r: 3, fill: "var(--s1)", stroke: "var(--surface)", "stroke-width": 2 })); });
+  const slot = plotW / n;
+  series.forEach((b, i) => {
+    const hit = svg("rect", { x: PL + i * slot, width: slot, y: PT, height: plotH, fill: "transparent" });
+    const lines = [fmtHM(b.t_ns) + " – " + fmtHM(b.t_ns + bucketS * 1e9), "p95 latency: " + fmtMs(b.p95_ms), "Requests: " + b.requests];
+    hit.addEventListener("mousemove", (e) => showTip(e, box, lines));
+    hit.addEventListener("mouseleave", hideTip);
+    s.append(hit);
+  });
+  return box;
+}
+
+function table(headers, rows, opts = {}) {
+  const thead = el("thead", {}, el("tr", {}, headers.map((h) => el("th", { class: h.num ? "num" : "" }, h.label))));
+  const tbody = el("tbody", {}, rows.map((r) => {
+    const tr = el("tr", opts.onRow ? { class: "click", tabindex: "0", onclick: () => opts.onRow(r), onkeydown: (e) => { if (e.key === "Enter") opts.onRow(r); } } : {},
+      headers.map((h) => el("td", { class: (h.num ? "num " : "") + (h.cls ? h.cls(r) : "") }, h.get(r))));
+    return tr;
+  }));
+  return el("div", { class: "tablewrap" }, el("table", {}, thead, tbody));
+}
+const tile = (label, value, sub, cls) => el("div", { class: "tile" }, el("div", { class: "label" }, label),
+  el("div", { class: "value " + (cls || "") }, value), el("div", { class: "sub" }, sub || ""));
+const empty = (msg) => el("div", { class: "empty" }, msg);
+
+// ---------- pages ----------
+function noDataMessage(o) {
+  if (o.data_status.empty) return "No telemetry collected yet. Send requests to this service (or an instrumented app) and it will appear here.";
+  return "No data in the last " + o.window_minutes + " minutes. The store holds " + fmtInt(o.data_status.spans_in_store) +
+         " spans; the newest is from " + fmtTime(o.data_status.newest_ns) + ". Try a longer window.";
+}
+
+function renderOverview(root) {
+  const o = state.overview;
+  if (!o) return root.replaceChildren(empty("Loading…"));
+  const r = o.requests, hasReq = r.total > 0;
+  const errCls = hasReq && r.error_rate > 0 ? "bad" : "";
+  const tiles = el("div", { class: "tiles" },
+    tile("Requests", fmtInt(r.total), "last " + o.window_minutes + " min"),
+    tile("Error rate", fmtPct(r.error_rate), fmtInt(r.errors) + " failed (5xx / exceptions)", errCls),
+    tile("Latency p50", fmtMs(r.latency_ms.p50), "median"),
+    tile("Latency p95", fmtMs(r.latency_ms.p95), "p99 " + fmtMs(r.latency_ms.p99)),
+    tile("Model calls", fmtInt(o.ai.calls), fmtInt(o.ai.errors) + " failed (incl. embeddings)"),
+    tile("Cost (priced calls)", fmtMoney(o.ai.cost_by_currency),
+      o.ai.unpriced_calls ? "⚠ " + o.ai.unpriced_calls + " call(s) unpriced" : "all calls priced"));
+  const parts = [tiles];
+  if (!hasReq && !o.ai_operations.length) { parts.push(el("div", { class: "card" }, empty(noDataMessage(o)))); }
+  else {
+    const legend = el("div", { class: "legend" },
+      el("span", {}, el("span", { class: "swatch", style: "background:var(--s1)" }), "Successful"),
+      el("span", {}, el("span", { class: "swatch", style: "background:var(--bad)" }), "Failed (error)"));
+    const tableView = (title) => el("details", {}, el("summary", {}, "Table view"),
+      table([{ label: "Bucket start", get: (b) => fmtTime(b.t_ns) }, { label: "Requests", num: 1, get: (b) => b.requests },
+             { label: "Errors", num: 1, get: (b) => b.errors }, { label: "p95", num: 1, get: (b) => fmtMs(b.p95_ms) }], o.series));
+    parts.push(el("div", { class: "grid2" },
+      el("div", { class: "card" }, el("h2", {}, "Requests per " + (o.bucket_seconds / 60) + " min"), legend, requestsChart(o.series, o.bucket_seconds), tableView()),
+      el("div", { class: "card" }, el("h2", {}, "p95 latency per " + (o.bucket_seconds / 60) + " min"), latencyChart(o.series, o.bucket_seconds))));
+    parts.push(el("div", { class: "card" }, el("h2", {}, "Routes"),
+      o.routes.length ? table([
+        { label: "Route", get: (x) => x.route }, { label: "Requests", num: 1, get: (x) => fmtInt(x.requests) },
+        { label: "Errors", num: 1, get: (x) => fmtInt(x.errors), cls: (x) => x.errors ? "bad" : "" },
+        { label: "p95", num: 1, get: (x) => fmtMs(x.p95_ms) }], o.routes) : empty("No requests in this window.")));
+  }
+  root.replaceChildren(...parts);
+}
+
+function renderAI(root) {
+  const o = state.overview;
+  if (!o) return root.replaceChildren(empty("Loading…"));
+  const a = o.ai;
+  const parts = [el("div", { class: "tiles" },
+    tile("Model calls", fmtInt(a.calls), fmtInt(a.errors) + " failed (incl. embeddings)"),
+    tile("Input tokens", fmtInt(a.input_tokens), "as reported by providers"),
+    tile("Output tokens", fmtInt(a.output_tokens), "as reported by providers"),
+    tile("Cost (priced calls)", fmtMoney(a.cost_by_currency), a.unpriced_calls ? "⚠ " + a.unpriced_calls + " unpriced" : "all calls priced"))];
+  if (a.unpriced_calls) parts.push(el("div", { class: "banner warn" }, el("span", {}, "Cost is incomplete: " + a.unpriced_calls +
+    " call(s) have no known price or no reported tokens. They are NOT counted as $0 — add the model to your pricing file (PRICING_TABLE_PATH).")));
+  if (!o.ai_operations.length) parts.push(el("div", { class: "card" }, empty(o.data_status.empty ? noDataMessage(o) : "No AI operations in this window.")));
+  else {
+    parts.push(el("div", { class: "card" }, el("h2", {}, "AI operations"), table([
+      { label: "Operation", get: (x) => x.operation }, { label: "Provider", get: (x) => x.provider }, { label: "Target", get: (x) => x.target },
+      { label: "Calls", num: 1, get: (x) => fmtInt(x.calls) }, { label: "Errors", num: 1, get: (x) => fmtInt(x.errors), cls: (x) => x.errors ? "bad" : "" },
+      { label: "p50", num: 1, get: (x) => fmtMs(x.p50_ms) }, { label: "p95", num: 1, get: (x) => fmtMs(x.p95_ms) },
+      { label: "Tokens in/out", num: 1, get: (x) => fmtInt(x.input_tokens) + " / " + fmtInt(x.output_tokens) },
+      { label: "Cost", num: 1, get: (x) => fmtMoney(x.cost_by_currency) },
+      { label: "Unpriced", num: 1, get: (x) => x.unpriced_calls || "" , cls: (x) => x.unpriced_calls ? "bad" : "" }], o.ai_operations)));
+    const c = state.costs;
+    if (c) parts.push(el("div", { class: "card" }, el("h2", {}, "Cost by model"),
+      c.models.length ? table([
+        { label: "Provider", get: (x) => x.provider }, { label: "Model", get: (x) => x.model },
+        { label: "Calls", num: 1, get: (x) => fmtInt(x.calls) }, { label: "Priced", num: 1, get: (x) => fmtInt(x.priced_calls) },
+        { label: "Unpriced", num: 1, get: (x) => fmtInt(x.unpriced_calls), cls: (x) => x.unpriced_calls ? "bad" : "" },
+        { label: "Cost", num: 1, get: (x) => fmtMoney(x.cost_by_currency) }], c.models) : empty("No model calls."),
+      el("div", { class: "status" }, c.note)));
+  }
+  root.replaceChildren(...parts);
+}
+
+function openTrace(id) { state.openTrace = id; state.traceDetail = null; state.scrollToTrace = true; setTab("traces"); }
+
+function flatten(nodes, depth, out) {
+  for (const n of nodes) { out.push({ n, depth }); flatten(n.children, depth + 1, out); }
+  return out;
+}
+function renderWaterfall(d) {
+  if (d._error) return el("div", { class: "banner err" }, "Could not load trace: " + d._error);
+  const rows = flatten(d.roots, 0, []);
+  const t0 = Math.min(...rows.map((r) => r.n.start_ns));
+  const t1 = Math.max(...rows.map((r) => r.n.start_ns + r.n.duration_ms * 1e6));
+  const span = Math.max(1, t1 - t0);
+  return el("div", { class: "card" },
+    el("div", { class: "controls", style: "justify-content:space-between" },
+      el("h2", {}, "Trace ", el("span", { class: "mono" }, d.trace_id)),
+      el("button", { type: "button", onclick: () => { state.openTrace = null; state.traceDetail = null; refresh(); } }, "Close trace")),
+    el("div", { class: "status" }, d.span_count + " spans · " + fmtMs(span / 1e6) + " total" + (d.has_error ? " · contains errors" : "")),
+    rows.map(({ n, depth }) => {
+      const left = ((n.start_ns - t0) / span) * 100, width = Math.max(0.5, (n.duration_ms * 1e6 / span) * 100);
+      const isErr = n.status === "ERROR";
+      const attrs = Object.entries(n.attributes);
+      return el("details", {},
+        el("summary", { style: "list-style:none" }, el("div", { class: "wf-row" },
+          el("div", { class: "wf-name", style: "padding-left:" + depth * 14 + "px", title: n.name },
+            (isErr ? "✕ " : "") + n.name, el("span", { style: "color:var(--muted)" }, "  " + n.service)),
+          el("div", { class: "wf-track" }, el("div", { class: "wf-bar" + (isErr ? " error" : ""), style: `left:${left}%;width:${width}%` })),
+          el("div", { class: isErr ? "bad" : "", style: "text-align:right" }, fmtMs(n.duration_ms)))),
+        el("div", { class: "attrs" }, [`status: ${n.status}`, `kind: ${n.kind}`, ...attrs.map(([k, v]) => `${k}: ${v}`)].map((t) => el("div", { class: "mono" }, t))));
+    }));
+}
+
+function renderTraces(root) {
+  const t = state.traces;
+  const filter = el("div", { class: "controls", style: "margin-bottom:8px" },
+    el("label", {}, el("input", { type: "checkbox", ...(state.errorsOnly ? { checked: "" } : {}),
+      onchange: (e) => { state.errorsOnly = e.target.checked; refresh(); } }), " Errors only"));
+  const parts = [filter];
+  // The opened trace goes ABOVE the list: below a 30-row table it was off-screen and looked like a dead click.
+  if (state.openTrace) parts.push(state.traceDetail ? renderWaterfall(state.traceDetail) : empty("Loading trace…"));
+  if (!t) parts.push(empty("Loading…"));
+  else if (!t.traces.length) parts.push(el("div", { class: "card" }, empty(state.errorsOnly ? "No traces with errors." : "No traces stored yet.")));
+  else parts.push(el("div", { class: "card" }, el("h2", {}, "Recent traces (click one)"), table([
+    { label: "Time", get: (x) => fmtTime(x.start_ns) }, { label: "Root span", get: (x) => x.root_name },
+    { label: "Service", get: (x) => x.service }, { label: "Spans", num: 1, get: (x) => x.span_count },
+    { label: "Duration", num: 1, get: (x) => fmtMs(x.duration_ms) },
+    { label: "Status", get: (x) => x.has_error ? "✕ error" : "✓ ok", cls: (x) => x.has_error ? "bad" : "ok" }], t.traces,
+    { onRow: (x) => { state.openTrace = x.trace_id; state.traceDetail = null; state.scrollToTrace = true; refresh(); } })));
+  root.replaceChildren(...parts);
+  if (state.scrollToTrace && state.traceDetail) { state.scrollToTrace = false; window.scrollTo(0, 0); }
+}
+
+function renderErrors(root) {
+  const e = state.errors;
+  if (!e) return root.replaceChildren(empty("Loading…"));
+  if (!e.total) return root.replaceChildren(el("div", { class: "card" }, empty("No errors in the last " + e.window_minutes + " minutes. ✓")));
+  root.replaceChildren(
+    el("div", { class: "card" }, el("h2", {}, "Error groups (" + e.total + " failures)"), table([
+      { label: "Span", get: (x) => x.name }, { label: "Error type", get: (x) => x.error_type },
+      { label: "Count", num: 1, get: (x) => x.count }, { label: "Last seen", get: (x) => fmtTime(x.last_ns) }], e.groups)),
+    el("div", { class: "card" }, el("h2", {}, "Recent errors (click to open trace)"), table([
+      { label: "Time", get: (x) => fmtTime(x.time_ns) }, { label: "Span", get: (x) => x.name }, { label: "Service", get: (x) => x.service },
+      { label: "Error type", get: (x) => x.error_type, cls: () => "bad" }, { label: "Duration", num: 1, get: (x) => fmtMs(x.duration_ms) }], e.recent,
+      { onRow: (x) => openTrace(x.trace_id) })));
+}
+
+
+const STATE = {
+  FIRING: ["▲ FIRING", "state-firing"], PENDING: ["◔ PENDING", "state-pending"], OK: ["✓ OK", "state-ok"],
+  NO_DATA: ["○ NO DATA", "state-nodata"], NOT_EVALUATED: ["– not evaluated", "state-na"],
+};
+const stateCell = (r) => el("span", { class: (STATE[r.state] || ["", ""])[1] }, (STATE[r.state] || [r.state])[0]);
+function renderAlerts(root) {
+  const a = state.alerts;
+  if (!a) return root.replaceChildren(el("div", { class: "card" }, empty(state.overview ? "Alert status unavailable (could not reach /api/alerts)." : "Loading…")));
+  const parts = [];
+  const lastRun = a.evaluator.last_run_ns;
+  const stale = lastRun && (Date.now() - lastRun / 1e6) > 5 * 60 * 1000;
+  parts.push(el("div", { class: "status" }, lastRun ? "Last evaluation " + fmtTime(lastRun) : "Evaluator has not run yet",
+    a.evaluator.last_error ? " · last evaluator error: " + a.evaluator.last_error : ""));
+  if (stale) parts.push(el("div", { class: "banner err" }, "Alert evaluation looks stalled (last run over 5 minutes ago). Alerts shown may be out of date."));
+  if (!a.rules.length) {
+    parts.push(el("div", { class: "card" }, empty("No alert rules configured. Set ALERT_RULES_PATH to a rules file (see alert_rules.example.json).")));
+  } else {
+    parts.push(el("div", { class: "card" }, el("h2", {}, "Rules (" + a.firing + " firing)"), table([
+      { label: "State", get: stateCell }, { label: "Severity", get: (r) => r.severity },
+      { label: "Rule", get: (r) => r.name },
+      { label: "Condition", get: (r) => r.metric + " " + r.comparator + " " + r.threshold + " · " + r.window_minutes + "m" + (r.for_seconds ? " · for " + r.for_seconds + "s" : "") },
+      { label: "Last value", num: 1, get: (r) => r.last_value === null || r.last_value === undefined ? "—" : Number(r.last_value.toPrecision(4)) },
+      { label: "Since", get: (r) => r.since_ns ? fmtTime(r.since_ns) : "—" },
+      { label: "Detail", get: (r) => r.message }], a.rules)));
+  }
+  parts.push(el("div", { class: "card" }, el("h2", {}, "Recent transitions"),
+    a.events.length ? table([
+      { label: "Time", get: (e) => fmtTime(e.ts_ns) }, { label: "Rule", get: (e) => e.rule_id },
+      { label: "Transition", get: (e) => (e.from_state || "—") + " → " + e.to_state, cls: (e) => e.to_state === "FIRING" ? "bad" : (e.from_state === "FIRING" && e.to_state === "OK" ? "ok" : "") },
+      { label: "Detail", get: (e) => e.message }], a.events) : empty("No alert transitions yet.")));
+  root.replaceChildren(...parts);
+}
+
+// ---------- shell ----------
+function render() {
+  const o = state.overview;
+  $("status").textContent = state.failed ? "Last update failed." :
+    o ? "Updated " + new Date().toLocaleTimeString() + " · " + fmtInt(o.data_status.spans_in_store) + " spans in store · window " + o.window_minutes + " min" : "Loading…";
+  const banner = $("banner");
+  banner.className = state.failed ? "banner err" : "banner";
+  banner.textContent = state.failed ? (state.authRequired ? "Not authorised. " : "Backend error — showing the last data received. ") + state.failed : "";
+  $("auth").classList.toggle("hidden", !state.authRequired);
+  $("content").classList.toggle("stale", !!state.failed);
+  renderOverview($("tab-overview")); renderAI($("tab-ai")); renderTraces($("tab-traces")); renderErrors($("tab-errors")); renderAlerts($("tab-alerts"));
+  const tab = $("alerts-tab"), firing = state.alerts ? state.alerts.firing : 0;
+  tab.replaceChildren(document.createTextNode("Alerts"), ...(firing ? [el("span", { class: "badge", title: firing + " alert(s) firing" }, firing)] : []));
+}
+function setTab(tab) {
+  state.tab = tab;
+  for (const b of document.querySelectorAll("nav button")) b.setAttribute("aria-selected", String(b.dataset.tab === tab));
+  for (const s of document.querySelectorAll("main section")) s.classList.toggle("hidden", s.id !== "tab-" + tab);
+  try { history.replaceState(null, "", "#" + tab); } catch (_) {}
+  refresh();
+}
+document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
+$("window").addEventListener("change", (e) => { state.windowMin = Number(e.target.value); refresh(); });
+$("refresh").addEventListener("click", refresh);
+$("token-save").addEventListener("click", () => {
+  try { sessionStorage.setItem("obsdash-token", $("token").value.trim()); } catch (_) {}
+  $("token").value = ""; refresh();
+});
+let timer = null;
+function schedule() { clearInterval(timer); if ($("auto").checked) timer = setInterval(() => { if (!document.hidden) refresh(); }, 5000); }
+$("auto").addEventListener("change", schedule);
+$("theme").addEventListener("click", () => {
+  const cur = document.documentElement.dataset.theme ||
+    (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const next = cur === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem("obsdash-theme", next); } catch (_) {}
+});
+try { const t = localStorage.getItem("obsdash-theme"); if (t) document.documentElement.dataset.theme = t; } catch (_) {}
+const initial = location.hash.replace("#", "");
+if (["overview", "ai", "traces", "errors", "alerts"].includes(initial)) setTab(initial); else { render(); refresh(); }
+schedule();
+</script>
+</body>
+</html>

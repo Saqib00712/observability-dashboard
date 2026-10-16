@@ -1,0 +1,46 @@
+# obsdash local deployment. One service; data persists in a named volume.
+#   docker compose up --build -d
+#   open http://127.0.0.1:8100/dashboard
+services:
+  obsdash:
+    build: .
+    image: obsdash:local
+    restart: unless-stopped
+    ports:
+      # Host loopback only: not reachable from other machines unless YOU change this.
+      - "127.0.0.1:${HOST_PORT:-8100}:8100"
+    environment:
+      API_TOKEN: ${API_TOKEN:-}
+      ALERT_RULES_PATH: ${ALERT_RULES_PATH:-}
+      PRICING_TABLE_PATH: ${PRICING_TABLE_PATH:-}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-docker}
+    volumes:
+      - obsdash-data:/data
+      - ./config:/config:ro
+    read_only: true            # image filesystem is immutable; only /data (volume) and /tmp are writable
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8100/healthz', timeout=2).status==200 else 1)"]
+      interval: 15s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  # Optional one-off: fill the volume with SYNTHETIC demo data.
+  #   docker compose --profile demo run --rm seed
+  seed:
+    profiles: ["demo"]
+    image: obsdash:local
+    build: .
+    command: ["python", "scripts/seed_demo_data.py", "/data/obsdash.db", "200"]
+    volumes:
+      - obsdash-data:/data
+
+volumes:
+  obsdash-data:
